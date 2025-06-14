@@ -2,15 +2,29 @@ import socket
 import base64
 import sys
 import time
+import hashlib
 
-def send_and_receive(sock, address, message, timeout=1):
-    sock.settimeout(timeout)
-    try:
-        sock.sendto(message.encode(), address)
-        response, _ = sock.recvfrom(4096)
-        return response.decode()
-    except socket.timeout:
-        return None
+def send_and_receive(sock, address, message, timeout=1, max_retries=5):
+    retries = 0
+    while retries < max_retries:
+        sock.settimeout(timeout)
+        try:
+            sock.sendto(message.encode(), address)
+            response, _ = sock.recvfrom(4096)
+            return response.decode()
+        except socket.timeout:
+            retries += 1
+            timeout *= 2  # 每次超时后，超时时间加倍
+            print(f"Timeout occurred. Retrying ({retries}/{max_retries})...")
+    print("Max retries reached. Giving up.")
+    return None
+
+def calculate_md5(file_path):
+    hash_md5 = hashlib.md5()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
 
 def download_file(server_address, port, filename):
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -60,6 +74,13 @@ def download_file(server_address, port, filename):
 
         if response and response.split()[2] == "CLOSE_OK":
             print(f"\nFile {filename} downloaded successfully")
+            # 验证文件完整性
+            client_md5 = calculate_md5(filename)
+            server_md5 = parts[7]  # 假设服务器在CLOSE_OK响应中提供了MD5校验和
+            if client_md5 == server_md5:
+                print("File integrity verified.")
+            else:
+                print("File integrity check failed.")
         else:
             print(f"Failed to close file {filename}")
     elif parts[0] == "ERR":

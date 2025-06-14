@@ -3,6 +3,25 @@ import base64
 import threading
 import os
 import random
+import hashlib
+
+def get_available_port(start, end):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    while True:
+        port = random.randint(start, end)
+        try:
+            sock.bind(("", port))
+            sock.close()
+            return port
+        except socket.error:
+            continue
+
+def calculate_md5(file_path):
+    hash_md5 = hashlib.md5()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
 
 def handle_client(client_socket, client_address, filename, data_port):
     try:
@@ -36,10 +55,11 @@ def handle_client(client_socket, client_address, filename, data_port):
         # 等待客户端关闭请求
         close_request, _ = data_socket.recvfrom(1024)
         if close_request.decode().startswith(f"FILE {filename} CLOSE"):
-            response = f"FILE {filename} CLOSE_OK"
+            # 计算文件的MD5校验和
+            file_md5 = calculate_md5(filename)
+            response = f"FILE {filename} CLOSE_OK {file_md5}"
             data_socket.sendto(response.encode(), client_address)
             print(f"File {filename} transfer completed for client {client_address}.")
-
     except Exception as e:
         print(f"Error handling client {client_address}: {e}")
     finally:
@@ -62,7 +82,7 @@ def main():
 
         if client_request.startswith("DOWNLOAD"):
             filename = client_request.split()[1]
-            data_port = random.randint(50000, 51000)  # 随机选择一个端口
+            data_port = get_available_port(50000, 51000)  # 获取可用端口
             client_thread = threading.Thread(target=handle_client, args=(server_socket, client_address, filename, data_port))
             client_thread.start()
 
